@@ -1,0 +1,129 @@
+{
+	"info": {
+		"_postman_id": "62a224d4-f08a-44a8-ba3f-97b9febfede3",
+		"name": "hotels-data-merge",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "9638262"
+	},
+	"item": [
+		{
+			"name": "Get All Hotels",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:3000/hotels?items_per_page=1&page_number=1",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"hotels"
+					],
+					"query": [
+						{
+							"key": "items_per_page",
+							"value": "1"
+						},
+						{
+							"key": "page_number",
+							"value": "1"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Hotels By Hotel Ids",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:3000/hotels?hotel_ids=iJhz,SjyX",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"hotels"
+					],
+					"query": [
+						{
+							"key": "hotel_ids",
+							"value": "iJhz,SjyX"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Hotels By Destination Ids",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:3000/hotels?destination_ids=1122,5432",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"hotels"
+					],
+					"query": [
+						{
+							"key": "destination_ids",
+							"value": "1122,5432"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Hotels Suppliers",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:3000/hotels/suppliers",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"hotels",
+						"suppliers"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Hotel And Destination IDs",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:3000/hotels/ids",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"hotels",
+						"ids"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
