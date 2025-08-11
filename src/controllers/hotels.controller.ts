@@ -50,6 +50,8 @@ export class HotelsController {
         if (!isNaN(_itemsPerPage) && _itemsPerPage > 0) {
           hotels = hotels.slice(0, _itemsPerPage);
           this.logger.log(`Returning first ${_itemsPerPage} hotels`);
+        } else {
+          this.logger.warn(`Invalid items per page: ${itemsPerPage}`);
         }
       }
 

@@ -36,3 +36,11 @@ $ npm install
 ```bash
 # development
 $ npm run start
+```
+
+## Run tests
+
+```bash
+# unit tests
+$ npm run test
+```
