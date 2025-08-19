@@ -268,9 +268,220 @@ describe('SupplierService', () => {
       await service.fetchHotelsFromSupplier(mockSupplierConfig);
 
       expect(errorSpy).toHaveBeenCalledWith(
-        `Failed to fetch hotels from ${mockSupplierConfig.name}:`,
-        'Network timeout'
+        `Failed to fetch hotels from ${mockSupplierConfig.name} after 1 attempt(s): Network timeout`
       );
+    });
+  });
+
+  describe('retry mechanism', () => {
+    beforeEach(() => {
+      // Mock the sleep method to avoid actual delays in tests
+      jest.spyOn(service as any, 'sleep').mockResolvedValue(undefined);
+    });
+
+    it('should retry up to 3 times on retryable errors and then succeed', async () => {
+      const mockResponse = createMockAxiosResponse(mockHotelData);
+      const networkError = new Error('Network error');
+      networkError['code'] = 'ECONNRESET';
+
+      httpService.get
+        .mockReturnValueOnce(throwError(() => networkError))
+        .mockReturnValueOnce(throwError(() => networkError))
+        .mockReturnValueOnce(of(mockResponse));
+
+      const logSpy = jest.spyOn(service['logger'], 'log');
+      const warnSpy = jest.spyOn(service['logger'], 'warn');
+
+      const result = await service.fetchHotelsFromSupplier(mockSupplierConfig);
+
+      expect(httpService.get).toHaveBeenCalledTimes(3);
+      expect(result).toEqual(mockHotelData);
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Attempt 1 failed for supplier ${mockSupplierConfig.name}`)
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Attempt 2 failed for supplier ${mockSupplierConfig.name}`)
+      );
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Successfully fetched ${mockHotelData.length} hotels from ${mockSupplierConfig.name} (attempt 3)`)
+      );
+    });
+
+    it('should fail after 3 retry attempts and return empty array', async () => {
+      const networkError = new Error('Network error');
+      networkError['code'] = 'ECONNRESET';
+
+      httpService.get.mockReturnValue(throwError(() => networkError));
+
+      const errorSpy = jest.spyOn(service['logger'], 'error');
+      const warnSpy = jest.spyOn(service['logger'], 'warn');
+
+      const result = await service.fetchHotelsFromSupplier(mockSupplierConfig);
+
+      expect(httpService.get).toHaveBeenCalledTimes(3);
+      expect(result).toEqual([]);
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Failed to fetch hotels from ${mockSupplierConfig.name} after 3 attempt(s)`)
+      );
+    });
+
+    it('should not retry on non-retryable errors (4xx client errors)', async () => {
+      const clientError = {
+        response: { status: 404 },
+        message: 'Not Found'
+      };
+
+      httpService.get.mockReturnValue(throwError(() => clientError));
+
+      const errorSpy = jest.spyOn(service['logger'], 'error');
+      const warnSpy = jest.spyOn(service['logger'], 'warn');
+
+      const result = await service.fetchHotelsFromSupplier(mockSupplierConfig);
+
+      expect(httpService.get).toHaveBeenCalledTimes(1);
+      expect(result).toEqual([]);
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Failed to fetch hotels from ${mockSupplierConfig.name} after 1 attempt(s)`)
+      );
+    });
+
+    it('should retry on 5xx server errors', async () => {
+      const serverError = {
+        response: { status: 500 },
+        message: 'Internal Server Error'
+      };
+      const mockResponse = createMockAxiosResponse(mockHotelData);
+
+      httpService.get
+        .mockReturnValueOnce(throwError(() => serverError))
+        .mockReturnValueOnce(of(mockResponse));
+
+      const warnSpy = jest.spyOn(service['logger'], 'warn');
+
+      const result = await service.fetchHotelsFromSupplier(mockSupplierConfig);
+
+      expect(httpService.get).toHaveBeenCalledTimes(2);
+      expect(result).toEqual(mockHotelData);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should retry on 429 rate limiting errors', async () => {
+      const rateLimitError = {
+        response: { status: 429 },
+        message: 'Too Many Requests'
+      };
+      const mockResponse = createMockAxiosResponse(mockHotelData);
+
+      httpService.get
+        .mockReturnValueOnce(throwError(() => rateLimitError))
+        .mockReturnValueOnce(of(mockResponse));
+
+      const warnSpy = jest.spyOn(service['logger'], 'warn');
+
+      const result = await service.fetchHotelsFromSupplier(mockSupplierConfig);
+
+      expect(httpService.get).toHaveBeenCalledTimes(2);
+      expect(result).toEqual(mockHotelData);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should retry on timeout errors (ECONNABORTED)', async () => {
+      const timeoutError = new Error('Timeout');
+      timeoutError['code'] = 'ECONNABORTED';
+      const mockResponse = createMockAxiosResponse(mockHotelData);
+
+      httpService.get
+        .mockReturnValueOnce(throwError(() => timeoutError))
+        .mockReturnValueOnce(of(mockResponse));
+
+      const warnSpy = jest.spyOn(service['logger'], 'warn');
+
+      const result = await service.fetchHotelsFromSupplier(mockSupplierConfig);
+
+      expect(httpService.get).toHaveBeenCalledTimes(2);
+      expect(result).toEqual(mockHotelData);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should retry on DNS resolution errors (ENOTFOUND)', async () => {
+      const dnsError = new Error('DNS resolution failed');
+      dnsError['code'] = 'ENOTFOUND';
+      const mockResponse = createMockAxiosResponse(mockHotelData);
+
+      httpService.get
+        .mockReturnValueOnce(throwError(() => dnsError))
+        .mockReturnValueOnce(of(mockResponse));
+
+      const warnSpy = jest.spyOn(service['logger'], 'warn');
+
+      const result = await service.fetchHotelsFromSupplier(mockSupplierConfig);
+
+      expect(httpService.get).toHaveBeenCalledTimes(2);
+      expect(result).toEqual(mockHotelData);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should retry on network errors without response', async () => {
+      const networkError = {
+        request: {},
+        message: 'Network Error'
+      };
+      const mockResponse = createMockAxiosResponse(mockHotelData);
+
+      httpService.get
+        .mockReturnValueOnce(throwError(() => networkError))
+        .mockReturnValueOnce(of(mockResponse));
+
+      const warnSpy = jest.spyOn(service['logger'], 'warn');
+
+      const result = await service.fetchHotelsFromSupplier(mockSupplierConfig);
+
+      expect(httpService.get).toHaveBeenCalledTimes(2);
+      expect(result).toEqual(mockHotelData);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should calculate retry delays with exponential backoff', () => {
+      const calculateRetryDelay = service['calculateRetryDelay'].bind(service);
+      
+      // Test that delays increase exponentially (with some tolerance for jitter)
+      const delay1 = calculateRetryDelay(1);
+      const delay2 = calculateRetryDelay(2);
+      const delay3 = calculateRetryDelay(3);
+
+      // Base delay is 1000ms, so expected delays are ~1000, ~2000, ~4000 (±25% jitter)
+      expect(delay1).toBeGreaterThan(750);
+      expect(delay1).toBeLessThan(1250);
+      
+      expect(delay2).toBeGreaterThan(1500);
+      expect(delay2).toBeLessThan(2500);
+      
+      expect(delay3).toBeGreaterThan(3000);
+      expect(delay3).toBeLessThan(5000);
+    });
+
+    it('should identify retryable errors correctly', () => {
+      const isRetryableError = service['isRetryableError'].bind(service);
+
+      // Retryable errors
+      expect(isRetryableError({ code: 'ECONNABORTED' })).toBe(true);
+      expect(isRetryableError({ code: 'ENOTFOUND' })).toBe(true);
+      expect(isRetryableError({ code: 'ECONNRESET' })).toBe(true);
+      expect(isRetryableError({ response: { status: 500 } })).toBe(true);
+      expect(isRetryableError({ response: { status: 502 } })).toBe(true);
+      expect(isRetryableError({ response: { status: 503 } })).toBe(true);
+      expect(isRetryableError({ response: { status: 429 } })).toBe(true);
+      expect(isRetryableError({ request: {} })).toBe(true);
+
+      // Non-retryable errors
+      expect(isRetryableError({ response: { status: 400 } })).toBe(false);
+      expect(isRetryableError({ response: { status: 401 } })).toBe(false);
+      expect(isRetryableError({ response: { status: 403 } })).toBe(false);
+      expect(isRetryableError({ response: { status: 404 } })).toBe(false);
+      expect(isRetryableError({ message: 'Some other error' })).toBe(false);
     });
   });
 });
