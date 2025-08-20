@@ -5,6 +5,15 @@ import { suppliersConfig, SupplierConfig } from '../config/suppliers.config';
 @Injectable()
 export class HotelMergeService {
   private readonly logger = new Logger(HotelMergeService.name);
+  private pathCache = new Map<string, string[]>();
+  private supplierCache = new Map<string, SupplierConfig>();
+
+  constructor() {
+    // Preload supplier configurations into cache for faster access
+    for (const supplier of suppliersConfig) {
+      this.supplierCache.set(supplier.name, supplier);
+    }
+  }
 
   mergeHotels(supplierDataMap: Map<string, SupplierHotelData[]>): Hotel[] {
     const hotelMap = new Map<string, Hotel>();
@@ -39,6 +48,10 @@ export class HotelMergeService {
     return result;
   }
 
+  private getSupplier(supplierName: string): SupplierConfig | undefined {
+    return this.supplierCache.get(supplierName);
+  }
+
   private extractFieldValue(data: any, fieldPaths: string[]): any {
     for (const path of fieldPaths) {
       const value = this.getNestedValue(data, path);
@@ -50,14 +63,35 @@ export class HotelMergeService {
   }
 
   private getNestedValue(obj: any, path: string): any {
-    return path.split('.').reduce((current, key) => {
-      return current && current[key] !== undefined ? current[key] : undefined;
-    }, obj);
+    if (!obj || !path) return undefined;
+
+    // Cache the path split to avoid repeated splits
+    let pathArray = this.pathCache.get(path);
+    if (!pathArray) {
+      pathArray = path.split('.');
+      this.pathCache.set(path, pathArray);
+    }
+
+    let current = obj;
+    for (const key of pathArray) {
+      if (current && typeof current === 'object' && key in current) {
+        current = current[key];
+      } else {
+        return undefined; // Path not found
+      }
+    }
+
+    return current;
+
+    // return path.split('.').reduce((current, key) => {
+    //   return current && current[key] !== undefined ? current[key] : undefined;
+    // }, obj);
   }
 
   private extractHotelId(rawHotel: SupplierHotelData, supplierName?: string): string | null {
     if (supplierName) {
-      const supplier = suppliersConfig.find(s => s.name === supplierName);
+      // const supplier = suppliersConfig.find(s => s.name === supplierName);
+      const supplier = this.getSupplier(supplierName);
       if (supplier) {
         return this.extractFieldValue(rawHotel, supplier.fieldMapping.hotelId);
       }
@@ -68,7 +102,7 @@ export class HotelMergeService {
   }
 
   private normalizeHotelData(rawHotel: SupplierHotelData, supplierName: string): Hotel {
-    const supplier = suppliersConfig.find(s => s.name === supplierName);
+    const supplier = this.getSupplier(supplierName);
     
     return {
       id: this.extractHotelId(rawHotel, supplierName)!,
@@ -170,10 +204,24 @@ export class HotelMergeService {
   }
 
   private normalizeAmenityList(amenities: any): string[] {
-    if (Array.isArray(amenities)) {
-      return amenities.map(a => typeof a === 'string' ? a.toLowerCase().trim() : '').filter(Boolean);
+    if (!Array.isArray(amenities)) return [];
+
+    const amenitySet = new Set<string>();
+    const normalized: string[] = [];
+
+    for (const amenity of amenities) {
+      if (typeof amenity === 'string') {
+        const cleaned = amenity.toLowerCase().trim();
+
+        // Only add meaningful amenities (length > 1, not just numbers/symbols)
+        if (cleaned.length > 1 && /[a-z]/.test(cleaned) && !amenitySet.has(cleaned)) {
+          normalized.push(cleaned);
+          amenitySet.add(cleaned);
+        }
+      }
     }
-    return [];
+
+    return normalized.sort();
   }
 
   private extractImages(rawHotel: SupplierHotelData, supplier?: SupplierConfig): Images {
@@ -200,17 +248,43 @@ export class HotelMergeService {
 
   private normalizeImageList(images: any): Image[] {
     if (!Array.isArray(images)) return [];
-    
-    return images.map(img => {
+
+    const linkSet = new Set<string>();
+    const normalized: Image[] = [];
+
+    for (const img of images) {
+      let link: string;
+      let description: string;
+      
       if (typeof img === 'string') {
-        return { link: img, description: '' };
+        link = img;
+        description = '';
+      } else if (img && typeof img === 'object') {
+        link = img.link || img.url || '';
+        description = img.description || img.caption || '';
+      } else {
+        continue;
       }
       
-      return {
-        link: img.link || img.url || '',
-        description: img.description || img.caption || '',
-      };
-    }).filter(img => img.link);
+      // Only add valid, unique images
+      if (link && !linkSet.has(link)) {
+        normalized.push({ link, description });
+        linkSet.add(link);
+      }
+    }
+
+    return normalized;
+    
+    // return images.map(img => {
+    //   if (typeof img === 'string') {
+    //     return { link: img, description: '' };
+    //   }
+      
+    //   return {
+    //     link: img.link || img.url || '',
+    //     description: img.description || img.caption || '',
+    //   };
+    // }).filter(img => img.link);
   }
 
   private extractBookingConditions(rawHotel: SupplierHotelData, supplier?: SupplierConfig): string[] {
@@ -270,8 +344,20 @@ export class HotelMergeService {
   }
 
   private mergeArrays<T>(existing: T[], incoming: T[]): T[] {
-    const combined = [...existing, ...incoming];
-    return Array.from(new Set(combined));
+    if (!existing.length) return [...incoming];
+    if (!incoming.length) return [...existing];
+
+    const existingSet = new Set(existing);
+    const merged = [...existingSet];
+
+    for (const item of incoming) {
+      if (!existingSet.has(item)) {
+        merged.push(item);
+        existingSet.add(item);
+      }
+    }
+
+    return merged;
   }
 
   private mergeImageArrays(existing: Image[], incoming: Image[]): Image[] {
@@ -302,7 +388,7 @@ export class HotelMergeService {
           hotelIds.add(hotelId);
         }
 
-        const supplier = suppliersConfig.find(s => s.name === supplierName);
+        const supplier = this.getSupplier(supplierName);
         const destinationId = this.extractDestinationId(rawHotel, supplier);
         if (destinationId && destinationId !== 0) {
           destinationIds.add(destinationId);
